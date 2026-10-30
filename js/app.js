@@ -1056,26 +1056,13 @@ const CAM_EFFECTS = [
   ['threshold', 'Comic'], ['lines', 'Lines'], ['crosshatch', 'Hatch'], ['sketch', 'Sketch'], ['noise', 'Noise'],
 ];
 const cam = { stream: null, facing: 'environment', mode: 'atkinson', raf: 0, last: 0, shot: null, target: null };
-// Live-adjustable look; same keys as a photo block so "Use photo" carries them over.
+// The camera only picks the effect; fine-tuning (dot size, grain, brightness…) happens
+// in the photo's edit panel afterwards. These are the photo block defaults.
 const camLook = { dither: 'atkinson', dot: 1, grain: 6, brightness: 0, contrast: 10 };
-const CAM_FIELDS = [
-  { k: 'dot', t: 'range', label: 'Dot size', min: 1, max: 10, fmt: v => `${v}×`, show: b => DITHER_EFFECTS.has(b.dither) },
-  { k: 'grain', t: 'range', label: 'Grain', min: 2, max: 18, fmt: v => `${v} px`, show: b => GRAIN_EFFECTS.has(b.dither) },
-  { k: 'brightness', t: 'range', label: 'Brightness', min: -100, max: 100, fmt: signed },
-  { k: 'contrast', t: 'range', label: 'Contrast', min: -100, max: 100, fmt: signed },
-];
-
-function buildCamControls() {
-  const box = $('#cam-controls');
-  box.innerHTML = '';
-  const set = patch => { Object.assign(camLook, patch); if (cam.shot) showShot(); };
-  for (const f of CAM_FIELDS) if (!f.show || f.show(camLook)) box.appendChild(buildField(f, camLook, set));
-}
 const camView = $('#cam-view'), camVideo = $('#cam-video'), camDlg = $('#dlg-camera');
 
 $('#cam-effects').innerHTML = CAM_EFFECTS.map(([v, l]) => `<button type="button" role="radio" data-v="${v}">${l}</button>`).join('');
-bindSegmented($('#cam-effects'), cam.mode, v => { cam.mode = camLook.dither = v; buildCamControls(); react('wow', 700); if (cam.shot) showShot(); });
-buildCamControls();
+bindSegmented($('#cam-effects'), cam.mode, v => { cam.mode = camLook.dither = v; react('wow', 700); if (cam.shot) showShot(); });
 
 function camMessage(text) {
   $('#cam-msg').hidden = !text;
@@ -1409,7 +1396,7 @@ function playIntro() {
   grid.forEach((_, r) => at(60 + r * 55, () => { catSvg.innerHTML = gridRects(grid.slice(0, r + 1)); }));
 
   // 2. A short boot log types itself.
-  const lines = ['> boot mini-p', '> load cat ........ ok', '> warm print head . ok', '> ready_'];
+  const lines = ['> boot minip', '> load cat ........ ok', '> warm print head . ok', '> ready_'];
   let t = 120;
   lines.forEach(line => {
     for (let i = 1; i <= line.length; i++) { const txt = line.slice(0, i); const done = log.dataset; at(t, () => { log.textContent = (done.prev || '') + txt; }); t += 14; }
@@ -1418,7 +1405,7 @@ function playIntro() {
   });
 
   // 3. The name decodes from random glyphs, left to right.
-  const target = 'Mini P';
+  const target = 'MiniP';
   const start = 450, frames = 22;
   for (let f = 0; f <= frames; f++) {
     at(start + f * 45, () => {

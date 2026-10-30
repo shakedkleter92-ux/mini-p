@@ -1168,16 +1168,6 @@ h1, h2, h3, p { margin: 0; }
 .cam-shutter:active span { transform: scale(.86); }
 @media (hover: hover) { .cam-shutter:hover span { transform: scale(.92); } }
 
-/* Camera sliders: compact, two per row when there's room */
-.cam-controls {
-  flex: none;
-  display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2) var(--sp-4);
-  padding: var(--sp-3) var(--sp-5) 0;
-}
-.cam-controls .field { gap: 2px; }
-.cam-controls .field-label { padding-bottom: 0; font-size: var(--fs-xs); }
-.cam-controls .field-label::after { display: none; }
-.cam-controls .range { height: 26px; }
 
 /* Camera self-timer */
 .cam-timer {

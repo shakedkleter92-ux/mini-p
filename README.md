@@ -1,4 +1,4 @@
-# Mini P
+# MiniP
 
 A web app for mini Bluetooth thermal printers of the "Cat Printer" family
 (X6h, GB0x, MX0x and similar, the printers that ship with apps like Tiny Print).

@@ -1,6 +1,6 @@
 {
-  "name": "Mini P",
-  "short_name": "Mini P",
+  "name": "MiniP",
+  "short_name": "MiniP",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#FFFFFF",
