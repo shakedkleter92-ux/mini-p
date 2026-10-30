@@ -132,11 +132,15 @@ export class CatPrinter extends EventTarget {
     const server = await this.device.gatt.connect();
     const service = await server.getPrimaryService(SERVICE);
     this.tx = await service.getCharacteristic(TX_CHAR);
-    const rx = await service.getCharacteristic(RX_CHAR);
-    await rx.startNotifications();
-    rx.addEventListener('characteristicvaluechanged', e => this.#onNotify(new Uint8Array(e.target.value.buffer)));
+    // Status notifications are a nice-to-have; some browsers (e.g. iOS BLE browsers)
+    // can refuse them, and printing still works without.
+    try {
+      const rx = await service.getCharacteristic(RX_CHAR);
+      await rx.startNotifications();
+      rx.addEventListener('characteristicvaluechanged', e => this.#onNotify(new Uint8Array(e.target.value.buffer)));
+    } catch { /* no status/flow-control notifications */ }
     this.emit('connect');
-    await this.#send(CMD.status, [0]);
+    await this.#send(CMD.status, [0]).catch(() => {});
     // A light status ping keeps printers with an idle timeout from dropping the link.
     clearInterval(this.keepAlive);
     this.keepAlive = setInterval(() => {
@@ -175,8 +179,14 @@ export class CatPrinter extends EventTarget {
 
   async #write(bytes) {
     while (this.paused && !this.cancelled) await sleep(20);
-    if (this.tx.writeValueWithoutResponse) await this.tx.writeValueWithoutResponse(bytes);
-    else await this.tx.writeValue(bytes);
+    // Not every Web Bluetooth implementation has writeValueWithoutResponse; fall back once and remember.
+    if (this.tx.writeValueWithoutResponse && !this.plainWrite) {
+      try { await this.tx.writeValueWithoutResponse(bytes); return; } catch (err) {
+        if (err?.name !== 'NotSupportedError' && !(err instanceof TypeError)) throw err;
+        this.plainWrite = true;
+      }
+    }
+    await this.tx.writeValue(bytes);
   }
 
   #send(cmd, data) {

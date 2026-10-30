@@ -1258,7 +1258,17 @@ async function connect() {
     return true;
   } catch (err) {
     setConn('off', 'Connect');
-    if (err?.name !== 'NotFoundError') toast('Connection failed — is the printer on and nearby?', 'error');
+    if (err?.name !== 'NotFoundError') {
+      // Say what actually went wrong, so it can be fixed (or reported).
+      const hint = {
+        NetworkError: 'The printer may be connected to another device (the Mac, or Tiny Print). Disconnect it there and try again.',
+        SecurityError: 'Bluetooth permission is off for this browser — allow it in the phone Settings.',
+        NotAllowedError: 'Bluetooth permission is off for this browser — allow it in the phone Settings.',
+        InvalidStateError: 'Bluetooth is off — turn it on and try again.',
+      }[err?.name] || 'Is the printer on and nearby?';
+      toast(`Connection failed. ${hint} (${err?.name || 'Error'}: ${err?.message || 'unknown'})`, 'error');
+      console.error(err);
+    }
     else pix(mascot, 'idle');
     return false;
   }
@@ -1353,7 +1363,7 @@ function toast(msg, kind = 'info', action) {
     el.appendChild(b);
   }
   $('#toasts').appendChild(el);
-  setTimeout(() => el.remove(), action ? 6000 : 3200);
+  setTimeout(() => el.remove(), action || msg.length > 80 ? 9000 : 3200);
 }
 
 /* ================= Menu & intro ================= */
