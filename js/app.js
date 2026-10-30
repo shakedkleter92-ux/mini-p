@@ -1148,7 +1148,7 @@ async function showShot() {
   camRender(img, img.naturalWidth, img.naturalHeight, false);
 }
 
-$('#cam-shutter').addEventListener('click', async () => {
+async function capture() {
   if (!camVideo.videoWidth) return;
   cancelAnimationFrame(cam.raf);
   const k = Math.min(1, 1024 / Math.max(camVideo.videoWidth, camVideo.videoHeight));
@@ -1162,9 +1162,49 @@ $('#cam-shutter').addEventListener('click', async () => {
   await showShot();
   camReview(true);
   react('happy', 1200);
+}
+
+/* Self-timer: Off → 3s → 10s. With a timer set, the shutter starts a countdown. */
+const TIMER_STEPS = [0, 3, 10];
+cam.timer = 0;
+cam.countdown = 0;
+
+function cancelCountdown() {
+  clearInterval(cam.countdown);
+  cam.countdown = 0;
+  $('#cam-count').hidden = true;
+  $('#cam-shutter').classList.remove('counting');
+  $('#cam-shutter').setAttribute('aria-label', 'Take photo');
+}
+
+$('#cam-timer').addEventListener('click', () => {
+  cam.timer = TIMER_STEPS[(TIMER_STEPS.indexOf(cam.timer) + 1) % TIMER_STEPS.length];
+  $('#cam-timer-label').textContent = cam.timer ? `${cam.timer}s` : 'Off';
+  $('#cam-timer').setAttribute('aria-label', `Self-timer: ${cam.timer ? cam.timer + ' seconds' : 'off'}`);
+  $('#cam-timer').classList.toggle('on', !!cam.timer);
+  react(cam.timer ? 'wow' : 'oops', 600);
+});
+
+$('#cam-shutter').addEventListener('click', () => {
+  if (cam.countdown) { cancelCountdown(); react('oops', 600); return; }
+  if (!cam.timer) { capture(); return; }
+  let left = cam.timer;
+  const count = $('#cam-count');
+  count.textContent = left;
+  count.hidden = false;
+  $('#cam-shutter').classList.add('counting');
+  $('#cam-shutter').setAttribute('aria-label', 'Cancel timer');
+  pix(mascot, 'wow');
+  cam.countdown = setInterval(() => {
+    left -= 1;
+    if (left > 0) { count.textContent = left; return; }
+    cancelCountdown();
+    capture();
+  }, 1000);
 });
 
 $('#cam-retake').addEventListener('click', () => {
+  cancelCountdown();
   cam.shot = null;
   camReview(false);
   camLoop();
@@ -1189,12 +1229,13 @@ $('#cam-use').addEventListener('click', () => {
 });
 
 $('#cam-flip').addEventListener('click', () => {
+  cancelCountdown();
   cam.facing = cam.facing === 'user' ? 'environment' : 'user';
   react('spin', 700);
   startCamera();
 });
 
-camDlg.addEventListener('close', stopCamera);
+camDlg.addEventListener('close', () => { cancelCountdown(); stopCamera(); });
 
 /* ================= Printer ================= */
 

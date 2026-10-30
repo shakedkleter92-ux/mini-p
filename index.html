@@ -49,6 +49,7 @@
       <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M6 3h12v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5L6 21Z"/><path d="M9 8h6M9 12h6M9 16h3"/></symbol>
       <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.5"/></symbol>
       <symbol id="i-flip" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/></symbol>
+      <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></symbol>
       <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-7 9 7M5 10v10h14V10"/></symbol>
 
     </defs>
@@ -240,13 +241,16 @@
     <div class="cam-stage">
       <canvas id="cam-view" aria-label="Live camera preview with the print effect"></canvas>
       <p class="cam-msg" id="cam-msg" hidden></p>
+      <p class="cam-count" id="cam-count" aria-live="assertive" hidden></p>
     </div>
     <div class="cam-effects segmented" id="cam-effects" role="radiogroup" aria-label="Effect"></div>
     <div class="cam-controls" id="cam-controls"></div>
     <div class="cam-bar">
       <button class="icon-btn cam-side" id="cam-flip" aria-label="Switch camera" title="Switch camera"><svg class="icon"><use href="#i-flip"/></svg></button>
       <button class="cam-shutter" id="cam-shutter" aria-label="Take photo"><span></span></button>
-      <span class="cam-side" aria-hidden="true"></span>
+      <button class="cam-side cam-timer" id="cam-timer" aria-label="Self-timer: off" title="Self-timer">
+        <svg class="icon"><use href="#i-timer"/></svg><span id="cam-timer-label">Off</span>
+      </button>
     </div>
     <div class="cam-bar cam-review" id="cam-review" hidden>
       <button class="pill pill-light" id="cam-retake">Retake</button>
