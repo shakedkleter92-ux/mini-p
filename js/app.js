@@ -18,10 +18,10 @@ const TYPES = {
   receipt: {
     label: 'Receipt', icon: 'i-receipt',
     make: () => ({
-      business: 'MINI CAFÉ', subtitle: '12 Paper Street, Tel Aviv\nTel. 03-555-0101',
+      business: 'MINI CAFÉ', subtitle: '12 Paper Street\nTel. 555-0101',
       liveDate: true, date: '', number: String(Math.floor(100000 + Math.random() * 900000)),
       items: 'Espresso | 2 | 9.00\nCroissant | 1 | 14.50\nOrange juice | 1 | 16.00',
-      currency: '₪', tax: 0, lang: 'en', footer: 'Thank you & see you soon!', barcode: true,
+      currency: '$', tax: 0, lang: 'en', footer: 'Thank you & see you soon!', barcode: true,
       font: 'Space Mono', size: 22,
     }),
     fields: [
@@ -156,51 +156,46 @@ function newBlock(type, overrides = {}) {
 
 const today = () => new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
 
+// Quiet by design: one regular-weight title, small mono details, hairline rules, lots of air.
+const TITLE = { font: 'Montserrat', bold: false, align: 'left', padY: 4 };
+const DETAIL = { font: 'Space Mono', bold: false, size: 20, align: 'left', padY: 2 };
+const RULE = { style: 'solid', thickness: 2, padY: 10 };
+const listTemplate = (name, title, items) => ({ name, make: () => [
+  newBlock('text', { ...TITLE, text: title, size: 36 }),
+  newBlock('text', { ...DETAIL, text: today() }),
+  newBlock('divider', RULE),
+  newBlock('list', { items, font: 'Space Mono', size: 22, gap: 8 }),
+] });
+
 const TEMPLATES = [
   { name: 'Receipt', make: () => [newBlock('receipt')] },
-  { name: 'קבלה', make: () => [newBlock('receipt', {
-    business: 'הקפה של מיני', subtitle: 'רחוב הנייר 12, תל אביב\nטל׳ 03-5550101', lang: 'he',
-    items: 'אספרסו | 2 | 9\nקרואסון | 1 | 14.50\nמיץ תפוזים | 1 | 16', tax: 18,
-    footer: 'תודה ולהתראות!', font: 'Heebo',
-  })] },
-  { name: 'Groceries', make: () => [
-    newBlock('text', { text: 'GROCERIES', font: 'Montserrat', size: 46, align: 'center' }),
-    newBlock('divider', { style: 'dashed' }),
-    newBlock('list', { items: 'Milk\nBread\nEggs\nTomatoes\nCoffee', size: 30, font: 'Montserrat' }),
-  ] },
-  { name: 'To-do today', make: () => [
-    newBlock('text', { text: 'To-do', font: 'Montserrat', size: 54, bold: true, align: 'left', padY: 4 }),
-    newBlock('text', { text: today(), font: 'Montserrat', size: 22, bold: false, align: 'left', padY: 0 }),
-    newBlock('divider', { style: 'solid', thickness: 2 }),
-    newBlock('list', { items: 'First task\nSecond task\nThird task', size: 28, font: 'Montserrat' }),
-  ] },
-  { name: 'רשימת קניות', make: () => [
-    newBlock('text', { text: 'רשימת קניות', font: 'Secular One', size: 52, align: 'center' }),
-    newBlock('divider', { style: 'dashed' }),
-    newBlock('list', { items: 'חלב\nלחם\nביצים\nעגבניות', size: 32, font: 'Heebo' }),
-  ] },
+  listTemplate('Groceries', 'Groceries', 'Milk\nBread\nEggs\nTomatoes\nCoffee'),
+  listTemplate('To-do', 'To-do', 'First task\nSecond task\nThird task'),
+  listTemplate('Packing', 'Packing', 'Passport\nCharger\nBook\nSunglasses'),
   { name: 'Name tag', make: () => [
-    newBlock('text', { text: 'HELLO, MY NAME IS', font: 'Montserrat', size: 24, align: 'center', invert: true, padY: 10 }),
-    newBlock('spacer', { height: 16 }),
-    newBlock('text', { text: 'Your Name', font: 'Pacifico', size: 64, bold: false, align: 'center' }),
-    newBlock('spacer', { height: 16 }),
+    newBlock('text', { ...DETAIL, text: 'Hello, my name is' }),
+    newBlock('divider', RULE),
+    newBlock('text', { ...TITLE, text: 'Your name', size: 54, padY: 10 }),
   ] },
-  { name: 'Sweet note', make: () => [
-    newBlock('emoji', { emoji: '💌', size: 120 }),
-    newBlock('text', { text: 'שיהיה לך יום נפלא!', font: 'Gveret Levin', size: 54, align: 'center' }),
-    newBlock('divider', { style: 'stars', thickness: 2 }),
+  { name: 'Note', make: () => [
+    newBlock('text', { ...DETAIL, text: 'A small note' }),
+    newBlock('divider', RULE),
+    newBlock('text', { ...TITLE, text: 'Have a good day.', size: 40, padY: 10 }),
   ] },
   { name: 'Photo + caption', make: () => [
     newBlock('image'),
-    newBlock('text', { text: 'A moment to remember', font: 'Caveat', size: 48, align: 'center' }),
+    newBlock('text', { ...DETAIL, text: 'A moment to remember', padY: 10 }),
   ] },
   { name: 'QR + title', make: () => [
-    newBlock('text', { text: 'SCAN ME', font: 'Montserrat', size: 44, align: 'center' }),
-    newBlock('qr', { text: 'https://example.com', scale: 70 }),
-    newBlock('text', { text: 'example.com', font: 'Space Mono', size: 22, bold: false, align: 'center' }),
+    newBlock('text', { ...TITLE, text: 'Scan me', size: 36 }),
+    newBlock('divider', RULE),
+    newBlock('qr', { text: 'https://example.com', scale: 60, align: 'left' }),
+    newBlock('text', { ...DETAIL, text: 'example.com' }),
   ] },
   { name: 'Date label', make: () => [
-    newBlock('text', { text: today(), font: 'Bebas Neue', size: 64, bold: false, align: 'center', invert: true, padY: 12 }),
+    newBlock('divider', RULE),
+    newBlock('text', { ...DETAIL, text: today(), size: 24, align: 'center', padY: 4 }),
+    newBlock('divider', RULE),
   ] },
 ];
 

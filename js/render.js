@@ -699,7 +699,7 @@ async function renderReceipt(b) {
     y += gap - 4;
   };
 
-  if (b.business) centered(b.business, Math.round(size * 1.45), true);
+  if (b.business) centered(b.business, Math.round(size * 1.35), false);
   if (b.subtitle) centered(b.subtitle, Math.round(size * 0.8), false);
   rule();
   const date = receiptDate(b);
@@ -717,7 +717,7 @@ async function renderReceipt(b) {
     row(L.subtotal, money(subtotal), Math.round(size * 0.85), false);
     row(`${L.tax} ${b.tax}%`, money(tax), Math.round(size * 0.85), false);
   }
-  row(L.total, money(subtotal + tax), Math.round(size * 1.3), true);
+  row(L.total, money(subtotal + tax), Math.round(size * 1.15), true);
   rule('double');
   if (b.footer) { y += 4; centered(b.footer, Math.round(size * 0.85), false); }
   if (b.barcode) {
