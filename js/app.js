@@ -411,6 +411,21 @@ function inkOnly(c) {
   return c;
 }
 
+// When a block changes height, whatever sits under it moves with it, so text that grows
+// doesn't run into the next block. Blocks placed beside it or overlapping it stay put.
+function pushBelow(b, oldH, newH) {
+  const delta = newH - oldH;
+  if (!delta || b.y == null) return;
+  const oldBottom = b.y + oldH;
+  const sharesColumn = (m, o) => (m.x ?? 0) < (o.x ?? 0) + boxWidth(o) && (o.x ?? 0) < (m.x ?? 0) + boxWidth(m);
+  const below = state.blocks.filter(o => o !== b && o.y != null && o.y >= oldBottom).sort((p, q) => p.y - q.y);
+  const moved = [b];
+  for (const o of below) {
+    if (moved.some(m => sharesColumn(m, o))) { o.y += delta; moved.push(o); }
+  }
+  if (moved.length > 1) persist();
+}
+
 async function drawNode(id) {
   const n = nodes.get(id), b = getBlock(id);
   if (!n || !b) return;
@@ -423,6 +438,7 @@ async function drawNode(id) {
     const first = !n.canvas;
     if (n.canvas) n.canvas.replaceWith(c); else n.el.prepend(c);
     n.canvas = c;
+    if (n.h != null) pushBelow(b, n.h, c.height);
     n.h = c.height;
     placeBlocks();
     // A just-added block only has a size now — make sure it isn't hidden under the sheet.
@@ -1290,7 +1306,14 @@ function setProgress(p) {
   printBtn.style.setProperty('--p', p);
 }
 
+let printing = false;
 async function doPrint() {
+  if (printing) return; // a double tap must not start a second job on top of this one
+  printing = true;
+  try { await runPrint(); } finally { printing = false; }
+}
+
+async function runPrint() {
   if (!state.blocks.length) return toast('The paper is blank — add something first', 'error');
   if (!printer.connected && !(await connect())) return;
   const canvases = await Promise.all(state.blocks.map(b => renderBlock(b, { preview: false })));
@@ -1307,17 +1330,17 @@ async function doPrint() {
   printBtn.disabled = true;
   printBtn.classList.add('printing');
   try {
-    for (let c = 0; c < copies; c++) {
-      $('#prog-title').innerHTML = copies > 1 ? `<span>Copy ${c + 1} of ${copies}</span><b>Printing</b>` : '<span>Now</span><b>Printing</b>';
-      const done = await printer.print(rows, {
-        darkness: state.settings.darkness,
-        slow: state.settings.speed === 'slow',
-        feed: c < copies - 1 ? 24 : state.settings.feed,
-        onProgress: setProgress,
-      });
-      if (!done) { toast('Printing stopped'); break; }
-      if (c === copies - 1) { toast('Printed! Tap Feed to push more paper out', 'success'); pixFlash(mascot, 'happy', 2400); }
-    }
+    const title = c => { $('#prog-title').innerHTML = copies > 1 ? `<span>Copy ${c + 1} of ${copies}</span><b>Printing</b>` : '<span>Now</span><b>Printing</b>'; };
+    title(0);
+    const done = await printer.print(rows, {
+      darkness: state.settings.darkness,
+      slow: state.settings.speed === 'slow',
+      feed: state.settings.feed,
+      copies,
+      onProgress: (p, c) => { setProgress(p); title(c); },
+    });
+    if (done) { toast('Printed! Tap Feed to push more paper out', 'success'); pixFlash(mascot, 'happy', 2400); }
+    else toast('Printing stopped');
   } catch (err) {
     console.error(err);
     toast('Printing failed — the connection dropped. Try again', 'error');
@@ -1334,6 +1357,7 @@ $('#prog-cancel').addEventListener('click', () => printer.cancel());
 
 const feedBtn = $('#btn-feed');
 feedBtn.addEventListener('click', async () => {
+  if (printing || printer.busy) return;
   if (!printer.connected && !(await connect())) return;
   feedBtn.disabled = true;
   try {

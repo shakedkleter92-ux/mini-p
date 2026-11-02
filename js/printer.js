@@ -31,6 +31,10 @@ export const DARKNESS = {
   max: 0x6400,
 };
 
+// Blank paper between copies (40 dots = 5 mm).
+const COPY_GAP = 40;
+const BLANK_ROW = new Uint8Array(PRINT_WIDTH / 8);
+
 const ROW_MS = {
   light: 12,
   normal: 15,
@@ -207,18 +211,23 @@ export class CatPrinter extends EventTarget {
   /**
    * rows: array of Uint8Array(48) — one bit per dot, LSB = leftmost dot.
    */
-  async print(rows, { darkness = 'normal', feed = 80, slow = false, onProgress } = {}) {
+  /**
+   * rows: array of Uint8Array(48) — one bit per dot, LSB = leftmost dot.
+   * Copies go out as one continuous job, separated by blank rows, so the printer
+   * is never reconfigured while it still has earlier lines left to print.
+   */
+  async print(rows, { darkness = 'normal', feed = 80, slow = false, copies = 1, onProgress } = {}) {
     if (!this.connected) throw new Error('not connected');
     this.cancelled = false;
     this.busy = true;
     try {
-      return await this.#printRows(rows, { darkness, feed, slow, onProgress });
+      return await this.#printRows(rows, { darkness, feed, slow, copies, onProgress });
     } finally {
       this.busy = false;
     }
   }
 
-  async #printRows(rows, { darkness, feed, slow, onProgress }) {
+  async #printRows(rows, { darkness, feed, slow, copies, onProgress }) {
     const energy = DARKNESS[darkness] ?? DARKNESS.normal;
 
     await this.#send(CMD.status, [0]);
@@ -231,20 +240,38 @@ export class CatPrinter extends EventTarget {
 
     // The printer silently drops lines once its buffer is full, so pace the
     // data to its actual print speed (darker = more heat time per line).
+    // Each gap is measured from the previous row: after a stall (background tab,
+    // a flow-control pause) sending resumes at the same rate, never in a catch-up burst.
     const msPerRow = (ROW_MS[darkness] ?? ROW_MS.normal) * (slow ? 1.8 : 1);
-    const start = performance.now();
-    for (let i = 0; i < rows.length; i++) {
-      if (this.cancelled) break;
-      await this.#send(CMD.line, rows[i]);
-      const wait = start + (i + 1) * msPerRow - performance.now();
+    const total = rows.length * copies + COPY_GAP * (copies - 1);
+    let sent = 0, last = performance.now();
+    const sendRow = async row => {
+      await this.#send(CMD.line, row);
+      const wait = last + msPerRow - performance.now();
       if (wait > 1) await sleep(wait);
-      if (onProgress && (i % 8 === 0 || i === rows.length - 1)) onProgress((i + 1) / rows.length);
+      last = performance.now();
+      sent++;
+    };
+    job: for (let c = 0; c < copies; c++) {
+      for (let i = 0; i < rows.length; i++) {
+        if (this.cancelled) break job;
+        await sendRow(rows[i]);
+        if (onProgress && (sent % 8 === 0 || sent === total)) onProgress(sent / total, c);
+      }
+      if (c < copies - 1) {
+        for (let i = 0; i < COPY_GAP; i++) {
+          if (this.cancelled) break job;
+          await sendRow(BLANK_ROW);
+        }
+      }
     }
 
     await this.#send(CMD.lattice, LATTICE_END);
     await this.#send(CMD.speed, [8]);
     if (feed > 0) await this.#send(CMD.feed, [feed & 0xff, feed >> 8]);
     await this.#send(CMD.status, [0]);
+    // Sending is done but the paper is still moving; stay busy so a new job can't collide.
+    await sleep(feed * 10 + 800);
     return !this.cancelled;
   }
 }
