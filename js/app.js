@@ -1616,6 +1616,25 @@ function toast(msg, kind = 'info', action) {
   setTimeout(() => el.remove(), action || msg.length > 80 ? 9000 : 3200);
 }
 
+/* ================= Press ripple ================= */
+
+// A small radar ring on every press. It runs through the Web Animations API so it still
+// plays when the system asks for reduced motion, and blends so it shows on black buttons too.
+addEventListener('pointerdown', e => {
+  const host = [...document.querySelectorAll('dialog[open]')].pop() || document.body; // open dialogs sit above the page
+  const ring = document.createElement('span');
+  ring.className = 'press-ring';
+  ring.style.left = `${e.clientX}px`;
+  ring.style.top = `${e.clientY}px`;
+  host.appendChild(ring);
+  ring.animate(
+    [{ transform: 'translate(-50%, -50%) scale(.15)', opacity: 1 },
+      { transform: 'translate(-50%, -50%) scale(.7)', opacity: 1, offset: .55 },
+      { transform: 'translate(-50%, -50%) scale(1)', opacity: 0 }],
+    { duration: 620, easing: 'ease-out' },
+  ).finished.finally(() => ring.remove());
+}, { capture: true, passive: true });
+
 /* ================= Menu & intro ================= */
 
 const menuBtn = $('#btn-menu'), menu = $('#menu');

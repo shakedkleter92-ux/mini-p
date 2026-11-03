@@ -1221,3 +1221,13 @@ h1, h2, h3, p { margin: 0; }
 /* Shrink-wrapped to the canvas, so the cell outline lines up with it */
 .label-preview { width: fit-content; max-width: 100%; margin-inline: auto; }
 .label-preview canvas { width: auto; height: auto; max-width: 100%; max-height: 150px; }
+
+/* Press ripple: white + difference reads as black on light and white on black */
+.press-ring {
+  position: fixed; z-index: 9999;
+  width: 56px; height: 56px;
+  border: 3px solid #fff; border-radius: 50%;
+  mix-blend-mode: difference;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(.15);
+}
