@@ -2,6 +2,7 @@
 // Each block renders at its own box width (b.w dots); the page composes them at (b.x, b.y).
 import { PRINT_WIDTH } from './printer.js';
 import { ensureFont, nearestWeight } from './fonts.js';
+import { renderLabel } from './label.js';
 
 export const FULL = PRINT_WIDTH;
 export const MIN_W = 48;
@@ -15,7 +16,7 @@ if (typeof qrcode !== 'undefined') qrcode.stringToBytes = qrcode.stringToBytesFu
 export const boxWidth = b => Math.round(Math.min(FULL, Math.max(MIN_W, b.w ?? FULL)));
 const padFor = w => (w >= 300 ? 12 : w >= 120 ? 8 : 4);
 
-function makeCanvas(h, w) {
+export function makeCanvas(h, w) {
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(w));
   c.height = Math.max(1, Math.round(h));
@@ -49,7 +50,7 @@ function fontString(family, size, bold) {
   return `${nearestWeight(family, bold)} ${size}px "${family}", ${FALLBACK}`;
 }
 
-function wrap(ctx, text, maxW) {
+export function wrap(ctx, text, maxW) {
   const out = [];
   for (const para of String(text).split('\n')) {
     if (!para.trim()) { out.push(''); continue; }
@@ -353,7 +354,7 @@ function writeBits(ctx, bits, w, h) {
   ctx.putImageData(img, 0, 0);
 }
 
-function binarize(canvas, mode = 'threshold', opts = {}) {
+export function binarize(canvas, mode = 'threshold', opts = {}) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const { width: w, height: h } = canvas;
   const g = toGray(ctx.getImageData(0, 0, w, h).data, opts);
@@ -609,7 +610,7 @@ const CODE39 = {
   '-': 'nwnnnnwnw', '*': 'nwnnwnwnn',
 };
 
-function drawBarcode(ctx, text, cx, y, h, maxW) {
+export function drawBarcode(ctx, text, cx, y, h, maxW) {
   const code = '*' + (String(text).replace(/[^0-9-]/g, '') || '0') + '*';
   const units = code.length * 16 - 1; // 3 wide (3u) + 6 narrow (1u) + 1u gap
   const n = Math.max(1, Math.min(3, Math.floor(maxW / units)));
@@ -737,6 +738,7 @@ async function renderReceipt(b) {
 }
 
 const RENDERERS = {
+  label: renderLabel,
   receipt: renderReceipt,
   text: renderText,
   list: renderList,

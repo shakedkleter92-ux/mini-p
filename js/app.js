@@ -1,6 +1,8 @@
 import { CatPrinter, isBluetoothSupported, PRINT_WIDTH } from './printer.js';
 import { renderBlock, layout, compose, canvasToRows, loadImage, boxWidth, effectThumb, applyEffect, GRAIN_EFFECTS, DITHER_EFFECTS, FULL, MIN_W } from './render.js';
 import { FONTS, DEFAULT_FONT, linkFont, linkAllFonts } from './fonts.js';
+import { hitCell, cellBox, ICON_NAMES } from './label.js';
+import { LABEL_TEMPLATES } from './label-templates.js';
 import { pix, pixFlash, stopAnim, pixelCursor, catGrid, gridRects } from './pixel.js';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -15,6 +17,20 @@ const DOTS_PER_MM = 8;
 const ALIGN_OPTS = [['left', 'Left'], ['center', 'Center'], ['right', 'Right']];
 
 const TYPES = {
+  label: {
+    label: 'Label', icon: 'i-layout',
+    make: () => ({ orientation: 'portrait', length: 640, frame: 0, grid: 0, rows: [] }),
+    fields: [
+      { k: 'orientation', t: 'seg', label: 'Print direction', rebuild: true,
+        opts: [['portrait', 'Portrait'], ['landscape', 'Landscape']],
+        after: (b, v) => { if (v === 'landscape') { b.w = FULL; b.x = 0; } } },
+      { t: 'labelPreview', show: b => b.orientation === 'landscape' },
+      { k: 'length', t: 'range', label: 'Label length', min: 300, max: 1200, step: 20, fmt: mm, show: b => b.orientation === 'landscape' },
+      { t: 'labelCells' },
+      { k: 'frame', t: 'range', label: 'Outer frame', min: 0, max: 12, fmt: v => (v ? `${v}` : 'None') },
+      { k: 'grid', t: 'range', label: 'Grid lines', min: 0, max: 8, fmt: v => (v ? `${v}` : 'None') },
+    ],
+  },
   receipt: {
     label: 'Receipt', icon: 'i-receipt',
     make: () => ({
@@ -127,8 +143,8 @@ const TYPES = {
 };
 
 const BOX_FIELDS = [
-  { t: 'box', label: 'Place on paper' },
-  { k: 'w', t: 'range', label: 'Box width', min: MIN_W, max: FULL, step: 4, fmt: mm },
+  { t: 'box', label: 'Place on paper', show: b => b.orientation !== 'landscape' },
+  { k: 'w', t: 'range', label: 'Box width', min: MIN_W, max: FULL, step: 4, fmt: mm, show: b => b.orientation !== 'landscape' },
 ];
 
 const EFFECT_GROUPS = [
@@ -198,6 +214,10 @@ const TEMPLATES = [
     newBlock('divider', RULE),
   ] },
 ];
+
+TEMPLATES.push(...LABEL_TEMPLATES.map(({ name, ...design }) => ({
+  name, group: 'labels', make: () => [newBlock('label', structuredClone(design))],
+})));
 
 /* ================= State & persistence ================= */
 
@@ -284,10 +304,24 @@ function makeNode(b) {
     startDrag(e, b.id, 'resize');
   });
   el.addEventListener('pointerdown', e => {
+    const n = nodes.get(b.id);
+    n.dragged = false;
+    n.downCell = null;
+    if (b.type === 'label' && n.canvas) {
+      const r = n.canvas.getBoundingClientRect();
+      const q = hitCell(n.canvas, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+      if (q) n.downCell = `${q.r}:${q.c}`;
+    }
     const wasSelected = state.selected === b.id;
     if (!wasSelected) select(b.id);
     // On touch, the first tap selects; dragging starts once it's selected (so the page still scrolls).
     if (e.pointerType === 'mouse' || wasSelected) startDrag(e, b.id, 'move');
+  });
+  // Opening the panel moves the paper, so the tapped cell is worked out on touch-down.
+  el.addEventListener('pointerup', () => {
+    const n = nodes.get(b.id);
+    if (!n?.downCell || n.dragged) return;
+    openCell(b, n.downCell);
   });
   el.addEventListener('keydown', e => {
     if (e.target !== el) return;
@@ -345,7 +379,7 @@ function startDrag(e, id, mode) {
   const onMove = ev => {
     const dx = (ev.clientX - sx) / k, dy = (ev.clientY - sy) / k;
     if (!moved && Math.hypot(dx * k, dy * k) < 4) return;
-    if (!moved) { moved = true; n.el.classList.add('dragging'); }
+    if (!moved) { moved = true; n.dragged = true; n.el.classList.add('dragging'); }
     const look = ev.movementX < -1 ? 'look-left' : ev.movementX > 1 ? 'look-right' : null;
     if (look && mascot.dataset.mood !== look) pix(mascot, look);
     if (mode === 'move') {
@@ -438,6 +472,7 @@ async function drawNode(id) {
     placeBlocks();
     // A just-added block only has a size now — make sure it isn't hidden under the sheet.
     if (first && state.selected === id && !isDesktop()) revealAboveSheet(id);
+    if (b.type === 'label') paintLabel(b);
   } catch (err) {
     console.error(err);
   }
@@ -450,7 +485,10 @@ const inspectorBody = $('#inspector-body');
 const isDesktop = () => matchMedia('(min-width: 900px)').matches;
 
 function select(id, { focus = false } = {}) {
+  if (id !== state.selected) state.cell = null;
+  const prev = getBlock(state.selected);
   state.selected = id;
+  if (prev?.type === 'label' && prev.id !== id) paintLabel(prev);
   syncPaper();
   buildInspector();
   document.body.classList.toggle('sheet-open', !!id && !isDesktop());
@@ -522,7 +560,10 @@ function buildInspector() {
   const idx = state.blocks.indexOf(b);
   $('[data-act="up"]').disabled = idx === state.blocks.length - 1;
   $('[data-act="down"]').disabled = idx === 0;
+  const keep = inspectorBody.dataset.block === b.id ? inspectorBody.scrollTop : 0;
+  inspectorBody.dataset.block = b.id;
   inspectorBody.innerHTML = '';
+  requestAnimationFrame(() => { inspectorBody.scrollTop = keep; });
   const set = patch => update(b.id, patch);
   for (const f of [...T.fields, ...BOX_FIELDS]) if (!f.show || f.show(b)) inspectorBody.appendChild(buildField(f, b, set));
 }
@@ -573,7 +614,7 @@ function buildField(f, obj, set) {
         <div class="segmented" role="radiogroup" aria-labelledby="${id}">
           ${f.opts.map(([v, l]) => `<button type="button" role="radio" data-v="${v}">${l}</button>`).join('')}
         </div>`;
-      bindSegmented($('.segmented', wrap), String(obj[f.k]), v => { put(typeof f.opts[0][0] === 'number' ? +v : v); react('happy', 600); });
+      bindSegmented($('.segmented', wrap), String(obj[f.k]), v => { f.after?.(obj, v); put(typeof f.opts[0][0] === 'number' ? +v : v); react('happy', 600); if (f.rebuild) buildInspector(); });
       break;
     }
     case 'check': {
@@ -659,6 +700,25 @@ function buildField(f, obj, set) {
       });
       break;
     }
+    case 'labelPreview': {
+      wrap.className = 'field';
+      wrap.innerHTML = `<span class="field-label">Upright view</span><div class="label-preview"></div>`;
+      requestAnimationFrame(() => paintLabel(obj));
+      break;
+    }
+    case 'labelCells': {
+      wrap.className = 'field';
+      wrap.innerHTML = `<span class="field-label">Label contents</span><div class="cells"></div>
+        <button type="button" class="pill pill-light pill-sm">Add row</button>`;
+      buildCells($('.cells', wrap), obj);
+      $('.pill', wrap).addEventListener('click', () => {
+        obj.rows.push({ cells: [{ kind: 'text', text: 'New text', size: 20, font: 'Space Mono' }] });
+        state.cell = `${obj.rows.length - 1}:0`;
+        update(obj.id, {});
+        buildInspector();
+      });
+      break;
+    }
     case 'box': {
       wrap.className = 'field';
       wrap.innerHTML = `<span class="field-label" id="${id}">${f.label}</span>
@@ -686,6 +746,169 @@ function buildField(f, obj, set) {
     }
   }
   return wrap;
+}
+
+/* ---- Label cells ---- */
+const CELL_KINDS = [['text', 'Text'], ['pill', 'Pill'], ['photo', 'Photo'], ['qr', 'QR'], ['barcode', 'Barcode'], ['icon', 'Icon'], ['solid', 'Black']];
+const CELL_EFFECTS = [['atkinson', 'Atkinson'], ['floyd', 'Floyd'], ['ordered', 'Bayer'], ['halftone', 'Halftone'], ['pixel', 'Pixel'], ['threshold', 'Comic']];
+
+function cellFields(c) {
+  const typed = [
+    { k: 'text', t: 'textarea', label: 'Text' },
+    { k: 'font', t: 'font', label: 'Font' },
+    { k: 'size', t: 'range', label: 'Size', min: 8, max: 120, fmt: v => `${v} pt` },
+    { k: 'align', t: 'seg', label: 'Align', opts: ALIGN_OPTS },
+    { k: 'tracking', t: 'range', label: 'Letter spacing', min: -2, max: 20, fmt: v => `${v}` },
+    { k: 'bold', t: 'check', label: 'Bold' },
+    { k: 'invert', t: 'check', label: 'Inverted', hint: 'white on black' },
+  ];
+  switch (c.kind || 'text') {
+    case 'photo': return [
+      { t: 'cellPhoto' },
+      { k: 'dither', t: 'seg', label: 'Effect', opts: CELL_EFFECTS, rebuild: true },
+      { k: 'grain', t: 'range', label: 'Grain', min: 2, max: 18, fmt: v => `${v} px`, show: x => GRAIN_EFFECTS.has(x.dither) },
+      { k: 'brightness', t: 'range', label: 'Brightness', min: -100, max: 100, fmt: signed },
+      { k: 'contrast', t: 'range', label: 'Contrast', min: -100, max: 100, fmt: signed },
+    ];
+    case 'qr': return [{ k: 'text', t: 'input', label: 'Link or text' }];
+    case 'barcode': return [
+      { k: 'text', t: 'input', label: 'Number', placeholder: 'Digits and dashes' },
+      { k: 'h', t: 'range', label: 'Height', min: 16, max: 120, fmt: v => `${v}` },
+      { k: 'digits', t: 'check', label: 'Show the number' },
+    ];
+    case 'icon': return [
+      { k: 'icon', t: 'seg', label: 'Icon', opts: ICON_NAMES.map(n => [n, n[0].toUpperCase() + n.slice(1)]) },
+      { k: 'caption', t: 'input', label: 'Caption' },
+      { k: 'box', t: 'range', label: 'Size', min: 20, max: 140, fmt: v => `${v}` },
+    ];
+    case 'arc': return [{ k: 'text', t: 'input', label: 'Text' }, { k: 'size', t: 'range', label: 'Size', min: 8, max: 40, fmt: v => `${v}` }];
+    case 'field': return [{ k: 'text', t: 'input', label: 'Label' }, { k: 'check', t: 'check', label: 'Tick box' }];
+    case 'solid': case 'orn': return [];
+    default: return typed;
+  }
+}
+
+function openCell(b, key) {
+  state.cell = state.cell === key ? null : key;
+  if (state.selected !== b.id) select(b.id); else buildInspector();
+  paintLabel(b);
+  requestAnimationFrame(() => $('.cell.open', inspectorBody)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+}
+
+function buildCells(box, b) {
+  const entry = (key, title) => {
+    const el = document.createElement('div');
+    const open = state.cell === key;
+    el.className = `cell${open ? ' open' : ''}`;
+    el.innerHTML = `<button type="button" class="cell-head" aria-expanded="${open}"><span>${esc(title)}</span>${icon(open ? 'i-up' : 'i-down')}</button>`;
+    $('.cell-head', el).addEventListener('click', () => openCell(b, key));
+    box.appendChild(el);
+    return el;
+  };
+  const after = () => { update(b.id, {}); buildInspector(); };
+  const ops = (el, list) => {
+    const bar = document.createElement('div');
+    bar.className = 'cell-ops';
+    for (const [label, run] of list) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'link-btn';
+      btn.textContent = label;
+      btn.addEventListener('click', () => { run(); after(); });
+      bar.appendChild(btn);
+    }
+    el.appendChild(bar);
+  };
+  b.rows.forEach((row, r) => {
+    if (row.rule) {
+      const el = entry(`${r}:rule`, 'Line');
+      if (state.cell !== `${r}:rule`) return;
+      el.appendChild(buildField({ k: 'rule', t: 'seg', label: 'Style', opts: [['solid', 'Solid'], ['dashed', 'Dashed'], ['dots', 'Dots']] }, row, patch => { Object.assign(row, patch); update(b.id, {}); }));
+      ops(el, [['Delete line', () => { b.rows.splice(r, 1); state.cell = null; }]]);
+      return;
+    }
+    row.cells.forEach((c, i) => {
+      const key = `${r}:${i}`;
+      const name = (c.text || c.caption || '').trim().split('\n')[0] || (CELL_KINDS.find(k => k[0] === (c.kind || 'text'))?.[1] ?? 'Cell');
+      const el = entry(key, name.slice(0, 34));
+      if (state.cell !== key) return;
+      if (c.weight >= 600) c.bold = true;
+      const set = patch => {
+        if ('bold' in patch) delete c.weight;
+        Object.assign(c, patch);
+        update(b.id, {});
+      };
+      const kinds = { k: 'kind', t: 'seg', label: 'Type', opts: CELL_KINDS, rebuild: true };
+      if (!c.kind) c.kind = 'text';
+      if (CELL_KINDS.some(k => k[0] === c.kind)) el.appendChild(buildField(kinds, c, patch => {
+        const d = { qr: { text: c.text || 'https://' }, barcode: { text: '123456', h: 48 }, icon: { icon: c.icon || 'heart', box: 60 }, photo: { dither: 'atkinson', contrast: 10, h: c.h || 160 } }[patch.kind];
+        set({ ...d, ...patch });
+      }));
+      for (const f of cellFields(c)) {
+        if (f.show && !f.show(c)) continue;
+        if (f.t === 'cellPhoto') {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'pill pill-dark pill-sm';
+          btn.textContent = c.src ? 'Replace photo' : 'Choose photo';
+          btn.addEventListener('click', () => pickImage(b.id, c));
+          el.appendChild(btn);
+          continue;
+        }
+        if (f.t === 'range' && c[f.k] == null) c[f.k] = f.k === 'tracking' || f.k === 'brightness' ? 0 : f.k === 'contrast' ? 10 : f.k === 'grain' ? 6 : f.min;
+        if (f.t === 'seg' && c[f.k] == null && f.k === 'align') c.align = 'left';
+        el.appendChild(buildField(f, c, set));
+      }
+      if (row.cells.length > 1 && i < row.cells.length - 1) {
+        const next = row.cells[i + 1];
+        const pair = (c.w ?? 1) + (next.w ?? 1);
+        const view = { pct: Math.round((c.w ?? 1) / pair * 100) };
+        el.appendChild(buildField({ k: 'pct', t: 'range', label: 'Width against the next cell', min: 15, max: 85, fmt: v => `${v}%` }, view, ({ pct }) => {
+          c.w = pair * pct / 100;
+          next.w = pair - c.w;
+          update(b.id, {});
+        }));
+      }
+      ops(el, [
+        ['Split cell', () => { row.cells.splice(i + 1, 0, { kind: 'text', text: 'New', size: c.size || 20, font: c.font || 'Space Mono' }); }],
+        ['Duplicate row', () => { b.rows.splice(r + 1, 0, structuredClone(row)); }],
+        [row.cells.length > 1 ? 'Delete cell' : 'Delete row', () => {
+          if (row.cells.length > 1) row.cells.splice(i, 1); else b.rows.splice(r, 1);
+          state.cell = null;
+        }],
+      ]);
+    });
+  });
+}
+
+// Outline the open cell on the paper, and redraw the upright view of a sideways label.
+function paintLabel(b) {
+  const n = nodes.get(b.id);
+  if (!n?.canvas?._rects) return;
+  const [r, c] = (state.selected === b.id && state.cell || '').split(':').map(Number);
+  const q = n.canvas._rects.find(x => x.r === r && x.c === c);
+  const place = (host, straight) => {
+    let hl = $(':scope > .cell-hl', host);
+    if (!q) { hl?.remove(); return; }
+    if (!hl) { hl = document.createElement('span'); hl.className = 'cell-hl'; host.appendChild(hl); }
+    const box = cellBox(n.canvas, q, straight);
+    for (const k of Object.keys(box)) hl.style[k] = `${box[k]}%`;
+  };
+  place(n.el, false);
+  const holder = state.selected === b.id ? $('.label-preview', inspectorBody) : null;
+  if (holder && n.canvas._landscape) {
+    const d = n.canvas._design;
+    const view = document.createElement('canvas');
+    view.width = d.width; view.height = d.height;
+    view.getContext('2d').drawImage(d, 0, 0);
+    view.addEventListener('click', e => {
+      const box = view.getBoundingClientRect();
+      const hit = hitCell(n.canvas, (e.clientX - box.left) / box.width, (e.clientY - box.top) / box.height, true);
+      if (hit) openCell(b, `${hit.r}:${hit.c}`);
+    });
+    holder.replaceChildren(view);
+    place(holder, true);
+  }
 }
 
 function bindSegmented(group, value, onChange) {
@@ -767,8 +990,10 @@ function setBlocks(blocks) {
 
 const fileInput = $('#file-input');
 let fileTarget = null;
-function pickImage(id) {
+let fileCell = null;
+function pickImage(id, cell = null) {
   fileTarget = id;
+  fileCell = cell;
   fileInput.value = '';
   fileInput.click();
 }
@@ -777,7 +1002,8 @@ fileInput.addEventListener('change', async () => {
   if (!file || !fileTarget) return;
   try {
     const src = await downscale(file, 1024);
-    update(fileTarget, { src, rotate: 0 });
+    if (fileCell) { fileCell.src = src; update(fileTarget, {}); }
+    else update(fileTarget, { src, rotate: 0 });
     react('wow', 1500);
     if (state.selected === fileTarget) buildInspector();
   } catch {
@@ -865,6 +1091,8 @@ const tplCache = new Map();
 
 async function thumb(blocks) {
   const canvases = await Promise.all(blocks.map(b => renderBlock(b, { preview: true })));
+  // A label's picker thumbnail shows it upright, even if it prints sideways.
+  if (blocks.length === 1 && canvases[0]?._design) return canvases[0]._design;
   return compose(canvases, layout(blocks, canvases.map(c => c?.height ?? 0)));
 }
 
@@ -877,6 +1105,7 @@ function openTemplates(tab = 'tpl') {
         <div class="tpl-thumb" aria-hidden="true"></div>
         <span class="tpl-name">${t.name}</span>
       </button>`).join('');
+    showTab(tab);
     TEMPLATES.forEach(async (t, i) => {
       if (!tplCache.has(i)) tplCache.set(i, thumb(t.make()));
       $(`.tpl[data-i="${i}"] .tpl-thumb`, grid).replaceChildren(await tplCache.get(i));
@@ -889,8 +1118,10 @@ function openTemplates(tab = 'tpl') {
 
 function showTab(tab) {
   $$('#dlg-templates .tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === tab)));
-  $('#tpl-grid').hidden = tab !== 'tpl';
+  $('#tpl-grid').hidden = tab === 'saved';
   $('#saved-list').hidden = tab !== 'saved';
+  $$('#tpl-grid .tpl').forEach(t => { t.hidden = (TEMPLATES[+t.dataset.i].group || 'tpl') !== tab; });
+  $('#tpl-grid').scrollTop = 0;
 }
 $$('#dlg-templates .tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
 
@@ -1464,12 +1695,12 @@ function showSplash() { playIntro(); }
 /* ================= Wiring ================= */
 
 function buildAddButtons() {
-  const order = ['text', 'image', 'list', 'qr', 'drawing', 'emoji', 'divider', 'spacer', 'receipt'];
+  const order = ['text', 'image', 'list', 'qr', 'drawing', 'emoji', 'divider', 'spacer', 'receipt', 'label'];
   const tile = (k, label, ic) => `<button type="button" class="tile" data-add="${k}" aria-label="Add ${label}">${icon(ic)}<span>${label}</span></button>`;
   const html = order.map(k => tile(k, TYPES[k].label, TYPES[k].icon) + (k === 'image' ? tile('camera', 'Camera', 'i-camera') : '')).join('');
   $('#add-row').innerHTML = html;
   $('#add-grid').innerHTML = html;
-  $$('[data-add]').forEach(b => b.addEventListener('click', () => (b.dataset.add === 'camera' ? openCamera() : addBlock(b.dataset.add, b))));
+  $$('[data-add]').forEach(b => b.addEventListener('click', () => (b.dataset.add === 'camera' ? openCamera() : b.dataset.add === 'label' ? openTemplates('labels') : addBlock(b.dataset.add, b))));
 }
 
 $$('.inspector-actions [data-act]').forEach(b => b.addEventListener('click', () => blockAction(b.dataset.act)));

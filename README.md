@@ -18,6 +18,8 @@ It is black and white, works offline, and installs on your phone like a regular 
 - **Receipt block.** Fill in the business name, items, quantities and prices.
   Totals and VAT are calculated for you, and you can add a Code 39 barcode and
   English or Hebrew labels.
+- **Label designs.** Grid-based labels where every cell is editable: text, photo, QR,
+  barcode, icons. Print them upright or sideways along the paper.
 - **Templates and saved designs,** plus automatic saving of your current design.
 - **Print settings:** darkness, speed, copies, and a feed button for tearing
   the paper off.
@@ -53,6 +55,8 @@ js/app.js             app logic: blocks, editor, dialogs, camera, printing
 js/render.js          turns blocks into 1-bit, 384-dot images; all the effects
 js/printer.js         Bluetooth driver for the Cat Printer protocol
 js/pixel.js           pixel-art cat mascot
+js/label.js           label block: grid layout, icons, sideways printing
+js/label-templates.js ready-made label designs
 js/fonts.js           Google Fonts list and loader
 js/vendor/qrcode.js   QR code generator (MIT, Kazuhiko Arase)
 sw.js                 offline cache

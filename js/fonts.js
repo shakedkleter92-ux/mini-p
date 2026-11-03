@@ -60,20 +60,21 @@ export const FONTS = [
 
 export const DEFAULT_FONT = 'Heebo';
 
-const linked = new Set();
+const linked = new Map(); // family → promise that its stylesheet has loaded
 
 // One stylesheet per family, so a single bad request can't break the rest.
 // The browser only downloads a font file once text actually uses it.
 export function linkFont(name) {
-  if (linked.has(name)) return;
+  if (linked.has(name)) return linked.get(name);
   const f = FONTS.find(x => x.name === name);
-  if (!f) return;
-  linked.add(name);
+  if (!f) return undefined;
   const fam = name.replace(/ /g, '+') + (f.w.length > 1 ? ':wght@' + f.w.join(';') : '');
   const link = document.createElement('link');
   link.rel = 'stylesheet';
   link.href = `https://fonts.googleapis.com/css2?family=${fam}&display=swap`;
+  linked.set(name, new Promise(res => { link.onload = link.onerror = res; }));
   document.head.appendChild(link);
+  return linked.get(name);
 }
 
 export function linkAllFonts() {
@@ -90,10 +91,11 @@ export function nearestWeight(name, bold) {
 
 // Resolves when the face is ready (or gives up after a timeout, falling back).
 export async function ensureFont(name, weight, sample) {
-  linkFont(name);
+  const sheet = linkFont(name);
   try {
+    // fonts.load finds nothing until the stylesheet is in, and would resolve straight away.
     await Promise.race([
-      document.fonts.load(`${weight} 40px "${name}"`, sample || 'אבג Abc'),
+      Promise.resolve(sheet).then(() => document.fonts.load(`${weight} 40px "${name}"`, sample || 'אבג Abc')),
       new Promise(r => setTimeout(r, 4000)),
     ]);
   } catch { /* fall back to system font */ }
