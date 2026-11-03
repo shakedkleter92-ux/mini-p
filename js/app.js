@@ -1619,9 +1619,11 @@ function toast(msg, kind = 'info', action) {
 
 /* ================= Press ripple ================= */
 
-// A small radar ring on every press. It runs through the Web Animations API so it still
-// plays when the system asks for reduced motion, and blends so it shows on black buttons too.
-addEventListener('pointerdown', e => {
+// A small radar ring on every press. It runs through the Web Animations API so it still plays
+// when the system asks for reduced motion. On touch it waits for the finger to lift from a tap:
+// adding it at touch-down stopped the panels scrolling on iPhone, and a finger that scrolls
+// gets pointercancel, so scrolling never shows a ring.
+function pressRing(e) {
   const host = [...document.querySelectorAll('dialog[open]')].pop() || document.body; // open dialogs sit above the page
   const ring = document.createElement('span');
   ring.className = 'press-ring';
@@ -1634,7 +1636,9 @@ addEventListener('pointerdown', e => {
       { transform: 'translate(-50%, -50%) scale(1)', opacity: 0 }],
     { duration: 620, easing: 'ease-out' },
   ).finished.finally(() => ring.remove());
-}, { capture: true, passive: true });
+}
+addEventListener('pointerdown', e => { if (e.pointerType !== 'touch') pressRing(e); }, { capture: true, passive: true });
+addEventListener('pointerup', e => { if (e.pointerType === 'touch') pressRing(e); }, { capture: true, passive: true });
 
 /* ================= Menu & intro ================= */
 

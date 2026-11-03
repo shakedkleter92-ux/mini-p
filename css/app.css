@@ -1205,12 +1205,12 @@ h1, h2, h3, p { margin: 0; }
 .label-preview { width: fit-content; max-width: 100%; margin-inline: auto; }
 .label-preview canvas { width: auto; height: auto; max-width: 100%; max-height: 150px; }
 
-/* Press ripple: white + difference reads as black on light and white on black */
+/* Press ripple: a black ring with a thin white edge shows on light and on black alike */
 .press-ring {
   position: fixed; z-index: 9999;
   width: 56px; height: 56px;
-  border: 3px solid #fff; border-radius: 50%;
-  mix-blend-mode: difference;
+  border: 3px solid #111; border-radius: 50%;
+  box-shadow: 0 0 0 1.5px #fff, inset 0 0 0 1.5px #fff;
   pointer-events: none;
   transform: translate(-50%, -50%) scale(.15);
 }
@@ -1250,3 +1250,6 @@ h1, h2, h3, p { margin: 0; }
     height: var(--panel); max-height: none; min-height: 0;
   }
 }
+
+/* A vertical swipe that starts on a slider scrolls the panel; only sideways drags move it. */
+.range { touch-action: pan-y; }
