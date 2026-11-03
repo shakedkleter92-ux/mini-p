@@ -1730,7 +1730,6 @@ matchMedia('(min-width: 900px)').addEventListener('change', () => {
 });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
-if (!isBluetoothSupported()) $('#bt-banner').hidden = false;
 
 // The intro plays on every load (#app skips it — handy for testing).
 if (location.hash === '#app') intro.hidden = true;
