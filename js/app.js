@@ -313,15 +313,17 @@ function makeNode(b) {
       if (q) n.downCell = `${q.r}:${q.c}`;
     }
     const wasSelected = state.selected === b.id;
-    if (!wasSelected) select(b.id);
-    // On touch, the first tap selects; dragging starts once it's selected (so the page still scrolls).
+    if (e.pointerType === 'mouse' && !wasSelected) select(b.id);
+    // On touch, a tap selects; dragging starts once it's selected (so the canvas still scrolls).
     if (e.pointerType === 'mouse' || wasSelected) startDrag(e, b.id, 'move');
   });
-  // Opening the panel moves the paper, so the tapped cell is worked out on touch-down.
+  // A touch only counts once it ends without moving: a finger that starts scrolling the
+  // canvas gets pointercancel instead, so it never selects anything by accident.
   el.addEventListener('pointerup', () => {
     const n = nodes.get(b.id);
-    if (!n?.downCell || n.dragged) return;
-    openCell(b, n.downCell);
+    if (!n || n.dragged) return;
+    if (n.downCell) openCell(b, n.downCell);
+    else if (state.selected !== b.id) select(b.id);
   });
   el.addEventListener('keydown', e => {
     if (e.target !== el) return;
@@ -350,7 +352,7 @@ function placeBlocks() {
   });
   const H = Math.max(0, ...boxes.map(p => p.y + p.h));
   sheet.style.setProperty('--h', Math.max(H, 40));
-  if (document.body.classList.contains('sheet-open')) fitPaper();
+  fitPaper();
   $('#meta').textContent = state.blocks.length ? `≈ ${(H / DOTS_PER_MM / 10).toFixed(1)} cm` : '';
   return boxes;
 }
@@ -491,8 +493,6 @@ function select(id, { focus = false } = {}) {
   if (prev?.type === 'label' && prev.id !== id) paintLabel(prev);
   syncPaper();
   buildInspector();
-  document.body.classList.toggle('sheet-open', !!id && !isDesktop());
-  fitPaper();
   if (id) {
     inspector.hidden = false;
     requestAnimationFrame(() => inspector.classList.add('open'));
@@ -505,20 +505,19 @@ function select(id, { focus = false } = {}) {
 }
 
 let thumbTimer;
-// Phones: while editing, the paper lives in the space above the (lower) edit sheet and
-// shrinks to fit, so the whole design stays visible while you change it.
+// Phones: the paper fits the fixed space above the bottom panel, so the whole design stays
+// visible while you change it, and nothing moves when the panel opens or closes.
 const paperWrap = $('.paper-wrap');
 function fitPaper() {
-  const editing = !isDesktop() && document.body.classList.contains('sheet-open');
-  if (!editing) { paperWrap.style.maxWidth = ''; return; }
-  document.documentElement.style.setProperty('--tb', `${$('.topbar').getBoundingClientRect().bottom}px`);
+  if (isDesktop()) { paperWrap.style.maxWidth = ''; return; }
   const stage = $('.stage');
   const H = Math.max(40, +sheet.style.getPropertyValue('--h') || 40);
   const padX = 32, padY = 36 + 12; // paper padding + torn edge
   const availW = stage.clientWidth - 32;
-  const availH = stage.clientHeight - 24 - padY;
+  const availH = stage.clientHeight - $('.stage-head').offsetHeight - 24 - padY;
   const fit = Math.min(availW - padX, availH * FULL / H) + padX;
-  paperWrap.style.maxWidth = `${Math.max(180, Math.min(availW, fit))}px`;
+  // Very long designs stop shrinking here and scroll instead.
+  paperWrap.style.maxWidth = `${Math.max(210, Math.min(availW, fit))}px`;
 }
 addEventListener('resize', fitPaper);
 
@@ -789,8 +788,10 @@ function cellFields(c) {
 }
 
 function openCell(b, key) {
-  state.cell = state.cell === key ? null : key;
-  if (state.selected !== b.id) select(b.id); else buildInspector();
+  const next = state.cell === key ? null : key;
+  if (state.selected !== b.id) select(b.id); // selecting clears the open cell, so set it after
+  state.cell = next;
+  buildInspector();
   paintLabel(b);
   requestAnimationFrame(() => $('.cell.open', inspectorBody)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
 }

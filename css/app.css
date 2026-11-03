@@ -997,9 +997,6 @@ h1, h2, h3, p { margin: 0; }
 .toast .pix-float { color: currentColor; }
 
 /* Phones: leave room to scroll any block above the open edit sheet */
-@media (max-width: 899px) {
-  body.sheet-open .stage { padding-bottom: calc(min(64dvh, 600px) + 80px); }
-}
 
 .effects-group {
   grid-column: 1 / -1;
@@ -1103,20 +1100,6 @@ h1, h2, h3, p { margin: 0; }
 }
 
 
-/* Phones while editing: sheet sits low at a fixed height (scrolls inside);
-   the paper gets its own area above it and is scaled to fit. */
-@media (max-width: 899px) {
-  .inspector { height: min(46dvh, 460px); max-height: none; }
-  body.sheet-open { overflow: hidden; }
-  body.sheet-open .stage {
-    position: fixed; left: 0; right: 0;
-    top: var(--tb, 76px); bottom: min(46dvh, 460px);
-    overflow-y: auto; overscroll-behavior: contain;
-    padding: var(--sp-3) var(--sp-4) var(--sp-4);
-  }
-  body.sheet-open .stage-head { display: none; }
-  body.sheet-open .paper-wrap { transition: max-width var(--t-fast) var(--ease); }
-}
 
 .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-2); }
 .three .pill { padding: 0 var(--sp-2); }
@@ -1230,4 +1213,40 @@ h1, h2, h3, p { margin: 0; }
   mix-blend-mode: difference;
   pointer-events: none;
   transform: translate(-50%, -50%) scale(.15);
+}
+
+/* Phones and small tablets: a fixed split. The canvas keeps the top of the screen and scrolls by
+   itself; the bottom panel never changes size, and the edit panel opens exactly over it. */
+@media (max-width: 899px) {
+  :root { --panel: min(42dvh, 430px); }
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  .app {
+    height: 100dvh; min-height: 0; overflow: hidden;
+    display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) var(--panel);
+  }
+  .topbar { position: static; grid-row: 1; }
+  .workspace { display: contents; }
+  .stage {
+    grid-row: 2; flex: none; min-height: 0;
+    overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+    padding: 0 var(--sp-4) var(--sp-4);
+  }
+  .stage-head { margin-bottom: var(--sp-2); }
+  .dock {
+    grid-row: 3; grid-column: 1; position: relative; inset: auto; z-index: 15;
+    min-height: 0; height: var(--panel); padding: var(--sp-3) 0 calc(var(--sp-3) + var(--safe-b)); gap: var(--sp-2);
+  }
+  .dock-label { flex: none; }
+  .add-row {
+    flex: 1; min-height: 0;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); align-content: start; gap: var(--sp-2);
+    overflow: hidden auto; overscroll-behavior: contain; scroll-snap-type: none;
+    padding: var(--sp-1) var(--sp-4) var(--sp-2);
+  }
+  .add-row .tile { width: auto; height: 74px; }
+  .print-row { flex: none; }
+  .inspector {
+    grid-row: 3; grid-column: 1; position: relative; inset: auto; z-index: 30;
+    height: var(--panel); max-height: none; min-height: 0;
+  }
 }
