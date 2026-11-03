@@ -722,7 +722,7 @@ h1, h2, h3, p { margin: 0; }
 
 /* Progress */
 .progress-body { align-items: center; text-align: center; padding: var(--sp-6) var(--sp-5) var(--sp-5); }
-.progress-body .title-md { align-items: center; }
+.progress-body .title-md { justify-content: center; }
 .progress { width: 100%; height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .progress span { display: block; height: 100%; width: 0; background: var(--ink); transition: width 200ms linear; }
 #prog-text { font-weight: 700; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
@@ -1070,28 +1070,30 @@ h1, h2, h3, p { margin: 0; }
   background: var(--surface);
   display: grid; place-items: center;
   cursor: pointer;
-  transition: opacity .26s linear;
 }
-.intro.done { opacity: 0; }
-.intro-inner { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-4); width: min(86vw, 340px); }
-.intro-cat { width: 96px; height: auto; color: var(--ink); --surface: var(--surface); }
+/* Everything sits on the centre of the screen; the log block is centred but its text stays left-aligned */
+/* The cat, the name and the log share one width: the name's. */
+.intro-inner { --intro-fs: clamp(48px, 15vw, 68px); display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-3); width: fit-content; }
+/* width: 0 keeps the cat out of the block's sizing. The sprite's last column is empty, hence 15/14. */
+.intro-cat { width: 0; min-width: calc(100% * 15 / 14); height: auto; color: var(--ink); --surface: var(--surface); }
 .intro-name {
-  display: flex; align-items: baseline;
-  font-size: clamp(48px, 15vw, 68px); line-height: 1; letter-spacing: -.01em;
+  position: relative; display: grid;
+  font-size: var(--intro-fs); line-height: 1; letter-spacing: -.01em;
   min-height: 1.1em; white-space: nowrap;
   font-variant-ligatures: none;
 }
-.intro-text { font-weight: 600; white-space: pre; }
+/* An invisible copy holds the width steady while the letters decode, so nothing shifts */
+.intro-name::before { content: "MiniP"; visibility: hidden; font-weight: 600; grid-area: 1 / 1; }
+.intro-text { font-weight: 600; white-space: pre; grid-area: 1 / 1; }
 .intro-caret {
-  display: inline-block; width: .42em; height: .78em; margin-left: .08em;
-  background: var(--ink); transform: translateY(.06em);
+  position: absolute; left: 100%; top: .14em; width: .42em; height: .78em; margin-left: .08em;
+  background: var(--ink);
   animation: caret 1s steps(1) infinite;
 }
-.intro.done .intro-caret { animation: none; opacity: 0; }
 @keyframes caret { 50% { opacity: 0; } }
 .intro-log {
-  margin: 0; min-height: 5.4em;
-  font: 400 12px/1.5 "Space Mono", ui-monospace, Menlo, monospace;
+  margin: 0; min-height: 6em; width: 22ch; text-align: left;
+  font: 400 calc(var(--intro-fs) * .215)/1.5 "Space Mono", ui-monospace, Menlo, monospace;
   color: var(--muted); white-space: pre;
 }
 .intro-skip {
@@ -1253,3 +1255,30 @@ h1, h2, h3, p { margin: 0; }
 
 /* A vertical swipe that starts on a slider scrolls the panel; only sideways drags move it. */
 .range { touch-action: pan-y; }
+
+/* Titles read on one line: "Edit Text", not two stacked words */
+.title-lg, .title-md { flex-direction: row; align-items: baseline; gap: .26em; min-width: 0; }
+.inspector-head .title-md { flex: 1 1 auto; overflow: hidden; }
+.inspector-actions { flex: none; }
+@media (max-width: 899px) {
+  .inspector-head .title-md { font-size: var(--fs-md); }
+  .dialog-head .title-md { font-size: 18px; }
+  .inspector-actions .icon-btn { width: 34px; height: 34px; }
+  .inspector-actions [data-act="done"] { padding: 0 var(--sp-3); margin-left: var(--sp-1); }
+}
+@media (max-width: 399px) {
+  .inspector-head { gap: var(--sp-2); }
+  .dialog-head .title-md { font-size: var(--fs-md); }
+  .inspector-actions { gap: 0; }
+  .inspector-actions .icon-btn { width: 32px; height: 32px; }
+  .inspector-actions [data-act="done"] { padding: 0 var(--sp-2); }
+}
+@media (max-width: 349px) { #inspector-title span, #draw-title span { display: none; } }
+
+/* Waiting behind the intro: hidden until the cat lands and they make their entrance */
+.pre-enter .brand-name, .pre-enter .conn, .pre-enter .menu-wrap, .pre-enter #mascot,
+.pre-enter .stage-head, .pre-enter .paper, .pre-enter .empty, .pre-enter .dock,
+.pre-enter .addpanel, .pre-enter .inspector { opacity: 0; }
+
+/* Open and close are played from JS (see enter/leave in app.js) */
+.inspector { transition: none; }

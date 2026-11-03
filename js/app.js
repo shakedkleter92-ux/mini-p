@@ -259,6 +259,21 @@ const getBlock = id => state.blocks.find(b => b.id === id);
 /* ================= Paper (preview) ================= */
 
 const paper = $('#paper');
+// Everything that opens or closes moves through these. The Web Animations API plays even with
+// the OS "reduce motion" setting, and nothing stays transformed once an animation has ended.
+const EASE_OUT = 'cubic-bezier(.2, .8, .2, 1)', EASE_IN = 'cubic-bezier(.4, 0, 1, 1)';
+const PACE = 1.7; // the one knob for how slow all of them run: durations and delays are multiplied by it
+const timing = (ms, opts = {}) => ({ ...opts, duration: ms * PACE, delay: (opts.delay || 0) * PACE });
+const enter = (el, frames, ms = 300, opts) => el.animate(frames, { easing: EASE_OUT, fill: 'backwards', ...timing(ms, opts) });
+// `done` runs when the exit has played; cancelling the returned animation skips it.
+function leave(el, frames, ms = 200, done, opts) {
+  const a = el.animate(frames, { easing: EASE_IN, fill: 'forwards', ...timing(ms, opts) });
+  a.finished.then(() => { done?.(); a.cancel(); }).catch(() => {});
+  return a;
+}
+const POP = { opacity: [0, 1], scale: [.94, 1] };
+const FADE_UP = { opacity: [0, 1], transform: ['translateY(10px)', 'none'] };
+
 const sheet = document.createElement('div');
 sheet.className = 'sheet';
 paper.appendChild(sheet);
@@ -275,14 +290,17 @@ function syncPaper() {
       n = makeNode(b);
       nodes.set(b.id, n);
       redraw(b.id);
+      enter(n.el, POP, 260);
     }
     n.el.setAttribute('aria-label', `${TYPES[b.type].label}, block ${i + 1}. Arrow keys move it.`);
     n.el.setAttribute('aria-current', String(state.selected === b.id));
     // DOM order = stacking order.
     if (sheet.children[i] !== n.el) sheet.insertBefore(n.el, sheet.children[i] || null);
   });
+  const swapped = paper.hidden === state.blocks.length > 0;
   paper.hidden = !state.blocks.length;
   $('#empty').hidden = state.blocks.length > 0;
+  if (swapped && !document.documentElement.classList.contains('pre-enter')) enter(paper.hidden ? $('#empty') : paper, FADE_UP, 320);
   if (!state.blocks.length && !$('#empty-cat').firstChild) pix($('#empty-cat'), 'sleep');
   placeBlocks();
 }
@@ -494,16 +512,25 @@ function select(id, { focus = false } = {}) {
   syncPaper();
   buildInspector();
   if (id) {
+    const opening = !inspector.classList.contains('open');
+    sheetExit?.cancel();
+    sheetExit = null;
     inspector.hidden = false;
-    requestAnimationFrame(() => inspector.classList.add('open'));
+    inspector.classList.add('open');
+    if (opening && !isDesktop()) enter(inspector, { transform: ['translateY(105%)', 'none'] }, 340);
+    else if (prev?.id !== id) enter(inspectorBody, FADE_UP, 240);
     if (!isDesktop()) requestAnimationFrame(() => revealAboveSheet(id));
     if (focus) setTimeout(() => $('textarea, input.input', inspectorBody)?.focus(), 300);
   } else {
+    const closing = inspector.classList.contains('open');
     inspector.classList.remove('open');
-    if (!isDesktop()) setTimeout(() => { if (!state.selected) inspector.hidden = true; }, 300);
+    if (isDesktop()) { if (prev) enter(inspectorBody, FADE_UP, 240); }
+    else if (!closing) { if (!sheetExit) inspector.hidden = true; }
+    else sheetExit = leave(inspector, { transform: ['none', 'translateY(105%)'] }, 240, () => { inspector.hidden = true; sheetExit = null; });
   }
 }
 
+let sheetExit = null;
 let thumbTimer;
 // Phones: the paper fits the fixed space above the bottom panel, so the whole design stays
 // visible while you change it, and nothing moves when the panel opens or closes.
@@ -954,11 +981,18 @@ function blockAction(act, id = state.selected) {
   if (i < 0) return;
   if (act === 'done') { react('happy', 600); return select(null); }
   if (act === 'del') {
-    const [removed] = state.blocks.splice(i, 1);
-    persist();
+    const n = nodes.get(id);
+    if (n.leaving) return;
+    n.leaving = true;
     pixFlash(mascot, 'oops', 1500);
     select(null);
-    toast(`${TYPES[removed.type].label} deleted`, 'info', { label: 'Undo', run: () => { state.blocks.splice(i, 0, removed); persist(); select(removed.id); } });
+    leave(n.el, { opacity: [1, 0], scale: [1, .9] }, 170, () => {
+      const at = state.blocks.findIndex(b => b.id === id);
+      const [removed] = state.blocks.splice(at, 1);
+      persist();
+      syncPaper();
+      toast(`${TYPES[removed.type].label} deleted`, 'info', { label: 'Undo', run: () => { state.blocks.splice(Math.min(at, state.blocks.length), 0, removed); persist(); select(removed.id); } });
+    });
     return;
   }
   if (act === 'dup') {
@@ -1032,13 +1066,39 @@ async function downscale(file, max) {
 
 /* ================= Dialogs ================= */
 
+// Phones get full-screen dialogs that slide up; everything else rises and fades in the middle.
+const dialogFrames = dlg => (dlg.classList.contains('dialog-full') && !isDesktop()
+  ? { transform: ['translateY(100%)', 'none'] }
+  : { opacity: [0, 1], transform: ['translateY(28px) scale(.97)', 'none'] });
+// Not every browser can animate ::backdrop; there it simply appears.
+const onBackdrop = fn => { try { return fn({ pseudoElement: '::backdrop' }); } catch { return null; } };
+
 function openDialog(dlg) {
+  if (dlg.exit) { dlg.exit.forEach(a => a?.cancel()); dlg.exit = null; }
   if (!dlg.open) dlg.showModal();
+  enter(dlg, dialogFrames(dlg), 340);
+  onBackdrop(o => enter(dlg, { opacity: [0, 1] }, 240, o));
 }
+
+function closeDialog(dlg) {
+  if (!dlg.open || dlg.exit) return;
+  const f = dialogFrames(dlg);
+  const reversed = Object.fromEntries(Object.entries(f).map(([k, v]) => [k, [...v].reverse()]));
+  dlg.exit = [
+    leave(dlg, reversed, 220, () => { dlg.exit = null; dlg.close(); }),
+    onBackdrop(o => leave(dlg, { opacity: [1, 0] }, 220, null, o)),
+  ];
+}
+// Escape plays the same exit as the close button
+document.addEventListener('cancel', e => {
+  if (!(e.target instanceof HTMLDialogElement) || e.target.id === 'dlg-progress') return;
+  e.preventDefault();
+  closeDialog(e.target);
+}, true);
 $$('dialog').forEach(dlg => {
   dlg.addEventListener('click', e => {
-    if (e.target.closest('[data-close]')) dlg.close();
-    else if (e.target === dlg && dlg.id !== 'dlg-progress') dlg.close(); // backdrop
+    if (e.target.closest('[data-close]')) closeDialog(dlg);
+    else if (e.target === dlg && dlg.id !== 'dlg-progress') closeDialog(dlg); // backdrop
   });
 });
 
@@ -1084,7 +1144,7 @@ $('#font-list').addEventListener('click', e => {
   if (!item) return;
   fontCallback?.(item.dataset.name);
   pixFlash(mascot, 'happy', 700);
-  $('#dlg-fonts').close();
+  closeDialog($('#dlg-fonts'));
 });
 
 /* ---- Templates & saved designs ---- */
@@ -1124,14 +1184,17 @@ function showTab(tab) {
   $$('#tpl-grid .tpl').forEach(t => { t.hidden = (TEMPLATES[+t.dataset.i].group || 'tpl') !== tab; });
   $('#tpl-grid').scrollTop = 0;
 }
-$$('#dlg-templates .tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
+$$('#dlg-templates .tab').forEach(t => t.addEventListener('click', () => {
+  showTab(t.dataset.tab);
+  enter(t.dataset.tab === 'saved' ? $('#saved-list') : $('#tpl-grid'), FADE_UP, 260);
+}));
 
 $('#tpl-grid').addEventListener('click', e => {
   const t = e.target.closest('.tpl');
   if (!t) return;
   const tpl = TEMPLATES[+t.dataset.i];
   setBlocks(tpl.make());
-  $('#dlg-templates').close();
+  closeDialog($('#dlg-templates'));
   pixFlash(mascot, 'wow', 1400);
   toast(`"${tpl.name}" loaded`, 'success');
 });
@@ -1153,7 +1216,7 @@ $('#saved-list').addEventListener('click', e => {
   const del = e.target.closest('[data-del]');
   if (open) {
     const d = designs.find(x => x.id === open.dataset.id);
-    if (d) { setBlocks(structuredClone(d.blocks)); $('#dlg-templates').close(); toast(`"${d.name}" opened`, 'success'); }
+    if (d) { setBlocks(structuredClone(d.blocks)); closeDialog($('#dlg-templates')); toast(`"${d.name}" opened`, 'success'); }
   } else if (del) {
     store.set('designs', designs.filter(x => x.id !== del.dataset.del));
     renderSaved();
@@ -1221,11 +1284,11 @@ function confirmBox(title, text, okLabel) {
     let result = false;
     dlg.addEventListener('click', e => {
       const b = e.target.closest('[data-v]');
-      if (b) { result = b.dataset.v === '1'; dlg.close(); }
-      else if (e.target === dlg) dlg.close();
+      if (b) { result = b.dataset.v === '1'; closeDialog(dlg); }
+      else if (e.target === dlg) closeDialog(dlg);
     });
     dlg.addEventListener('close', () => { dlg.remove(); resolve(result); });
-    dlg.showModal();
+    openDialog(dlg);
     $('[data-v="1"]', dlg).focus();
   });
 }
@@ -1290,7 +1353,7 @@ $('#draw-clear').addEventListener('click', () => {
 $('#draw-done').addEventListener('click', () => {
   update(draw.target, { src: draw.canvas.toDataURL('image/png'), height: draw.canvas.height });
   if (state.selected === draw.target) buildInspector();
-  $('#dlg-draw').close();
+  closeDialog($('#dlg-draw'));
 });
 
 /* ---- Camera: live preview already in the print effect ---- */
@@ -1315,6 +1378,7 @@ function camMessage(text) {
 function camReview(on) {
   $('#cam-review').hidden = !on;
   $('.cam-bar:not(.cam-review)', camDlg).hidden = on;
+  enter(on ? $('#cam-review') : $('.cam-bar:not(.cam-review)', camDlg), FADE_UP, 260);
 }
 
 /** targetId: replace that photo block's image; otherwise a new photo block is added. */
@@ -1454,7 +1518,7 @@ $('#cam-use').addEventListener('click', () => {
     persist();
     select(b.id);
   }
-  camDlg.close();
+  closeDialog(camDlg);
   pixFlash(mascot, 'love', 1800);
 });
 
@@ -1573,7 +1637,7 @@ async function runPrint() {
     toast('Printing failed — the connection dropped. Try again', 'error');
   } finally {
     if (mascot.dataset.mood === 'print') pix(mascot, 'idle');
-    dlg.close();
+    closeDialog(dlg);
     printBtn.disabled = false;
     printBtn.classList.remove('printing');
     setProgress(0);
@@ -1610,11 +1674,19 @@ function toast(msg, kind = 'info', action) {
   if (action) {
     const b = document.createElement('button');
     b.textContent = action.label;
-    b.addEventListener('click', () => { action.run(); el.remove(); });
+    b.addEventListener('click', () => { action.run(); dismiss(); });
     el.appendChild(b);
   }
   $('#toasts').appendChild(el);
-  setTimeout(() => el.remove(), action || msg.length > 80 ? 9000 : 3200);
+  // They slide from the edge they sit on: the top on phones, the bottom on desktop
+  const off = `translateY(${isDesktop() ? 20 : -20}px)`;
+  enter(el, { opacity: [0, 1], transform: [off, 'none'] }, 300);
+  const dismiss = () => {
+    if (!el.isConnected || el.dataset.leaving) return;
+    el.dataset.leaving = '1';
+    leave(el, { opacity: [1, 0], transform: ['none', off] }, 200, () => el.remove());
+  };
+  setTimeout(dismiss, action || msg.length > 80 ? 9000 : 3200);
 }
 
 /* ================= Press ripple ================= */
@@ -1643,14 +1715,24 @@ addEventListener('pointerup', e => { if (e.pointerType === 'touch') pressRing(e)
 /* ================= Menu & intro ================= */
 
 const menuBtn = $('#btn-menu'), menu = $('#menu');
-function toggleMenu(open = menu.hidden) {
-  menu.hidden = !open;
+let menuOpen = false, menuExit = null;
+function toggleMenu(open = !menuOpen) {
+  if (open === menuOpen) return;
+  menuOpen = open;
   menuBtn.setAttribute('aria-expanded', String(open));
   react(open ? 'look-right' : 'idle', open ? 4000 : 10);
-  if (open) $('button', menu).focus();
+  if (open) {
+    menuExit?.cancel();
+    menu.hidden = false;
+    enter(menu, { opacity: [0, 1], transform: ['translateY(-10px) scale(.94)', 'none'] }, 260);
+    $$('button', menu).forEach((b, i) => enter(b, { opacity: [0, 1], transform: ['translateX(10px)', 'none'] }, 240, { delay: 40 + i * 35 }));
+    $('button', menu).focus();
+  } else {
+    menuExit = leave(menu, { opacity: [1, 0], transform: ['none', 'translateY(-6px) scale(.97)'] }, 160, () => { menu.hidden = true; });
+  }
 }
 menuBtn.addEventListener('click', () => toggleMenu());
-document.addEventListener('click', e => { if (!menu.hidden && !e.target.closest('.menu-wrap')) toggleMenu(false); });
+document.addEventListener('click', e => { if (menuOpen && !e.target.closest('.menu-wrap')) toggleMenu(false); });
 menu.addEventListener('click', e => {
   const item = e.target.closest('[data-menu]');
   if (!item) return;
@@ -1663,9 +1745,41 @@ const intro = $('#intro');
 const GLYPHS = '01<>/_#$%&*+=?';
 let introDone = null;
 
+// The cat shrinks and flies from the centre of the intro into its place in the header.
+function flyCatToLogo(catSvg) {
+  const from = catSvg.getBoundingClientRect(), to = $('#mascot svg').getBoundingClientRect();
+  const k = to.width / from.width, dx = to.left - from.left, dy = to.top - from.top;
+  const anims = [
+    ...[$('.intro-name', intro), $('#intro-log'), $('.intro-skip', intro)].map(el => el.animate({ opacity: 0 }, { fill: 'forwards', ...timing(220) })),
+    intro.animate({ backgroundColor: 'rgba(0,0,0,0)' }, { easing: 'ease-in', fill: 'forwards', ...timing(640, { delay: 120 }) }),
+  ];
+  const fly = catSvg.animate(
+    [{ transformOrigin: '0 0', transform: 'none' }, { transformOrigin: '0 0', transform: `translate(${dx}px, ${dy}px) scale(${k})` }],
+    { easing: 'cubic-bezier(.65, 0, .25, 1)', fill: 'forwards', ...timing(720, { delay: 120 }) },
+  );
+  return fly.finished.then(() => () => [...anims, fly].forEach(a => a.cancel()));
+}
+
+// Everything else comes in once the cat lands: the header fades, the paper slides down from
+// the top, and the bottom menu rises from below. Fill is 'backwards' only, so nothing stays
+// transformed afterwards. Runs through the Web Animations API to play with reduced motion on.
+function enterApp() {
+  const go = (el, frames, opts) => el && enter(el, frames, opts.duration, opts);
+  const fade = { opacity: [0, 1] };
+  [$('.brand-name'), $('.conn'), $('.menu-wrap')].forEach((el, i) => go(el, fade, { duration: 420, delay: i * 70 }));
+  go($('.stage-head'), fade, { duration: 360, delay: 700 }); // after the paper has passed under it
+  [paper, $('#empty')].filter(el => !el.hidden).forEach(el => go(el, { transform: ['translateY(-110%)', 'none'] }, { duration: 760, delay: 160 }));
+  if (isDesktop()) {
+    [$('.addpanel'), $('.dock'), inspector].forEach((el, i) => go(el, { opacity: [0, 1], transform: ['translateY(24px)', 'none'] }, { duration: 560, delay: 220 + i * 70 }));
+  } else {
+    go($('.dock'), { transform: ['translateY(100%)', 'none'] }, { duration: 680, delay: 240 });
+  }
+  document.documentElement.classList.remove('pre-enter');
+}
+
 function playIntro() {
   intro.hidden = false;
-  intro.classList.remove('done');
+  document.documentElement.classList.add('pre-enter');
   const name = $('.intro-text', intro), log = $('#intro-log');
   const catSvg = $('#intro-cat');
   const grid = catGrid('idle');
@@ -1704,10 +1818,14 @@ function playIntro() {
       log.dataset.prev = '';
       catSvg.innerHTML = gridRects(grid);
       name.textContent = target;
-      intro.classList.add('done');
-      setTimeout(() => { intro.hidden = true; resolve(); }, 260);
       intro.removeEventListener('click', finish);
       introDone = null;
+      flyCatToLogo(catSvg).then(reset => {
+        intro.hidden = true;
+        reset();
+        enterApp();
+        resolve();
+      });
     };
     introDone = finish;
     intro.addEventListener('click', finish);
